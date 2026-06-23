@@ -1,0 +1,167 @@
+name: personalized-promo-recommender
+
+x-hadoop-common: &hadoop-common
+  image: apache/hadoop:3.4.3@sha256:127774dadab40ce84df7ac668a7a8c99945688b3fe336f1388f4477ca33e1529
+  profiles: [full]
+  restart: unless-stopped
+  environment:
+    HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+    HADOOP_HEAPSIZE_MAX: "256"
+  networks: [promo-internal]
+  volumes:
+    - ./docker/hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+    - ./docker/hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+x-spark-common: &spark-common
+  image: spark:3.5.8-scala2.12-java17-python3-ubuntu@sha256:a71719262ca64125b520ec37e80d8689d1b393d91d4e7733f9740fb4ca5e26ed
+  profiles: [full]
+  restart: unless-stopped
+  environment:
+    HADOOP_CONF_DIR: /opt/hadoop-conf
+    HADOOP_USER_NAME: promo
+    PYTHONPATH: /workspace
+  networks: [promo-internal]
+  volumes:
+    - ./docker/hadoop/core-site.xml:/opt/hadoop-conf/core-site.xml:ro
+    - ./docker/hadoop/hdfs-site.xml:/opt/hadoop-conf/hdfs-site.xml:ro
+    - ./:/workspace:ro
+    - ${RAW_DATA_DIR:-./data/raw}:/data/raw:ro
+  working_dir: /workspace
+
+services:
+  hdfs-volume-init:
+    <<: *hadoop-common
+    restart: "no"
+    user: "0:0"
+    command:
+      - /bin/bash
+      - -eu
+      - -c
+      - |
+        mkdir -p /hadoop/dfs/name /hadoop/dfs/data-1 /hadoop/dfs/data-2
+        chown -R hadoop:hadoop /hadoop/dfs
+    volumes:
+      - hdfs-namenode:/hadoop/dfs/name
+      - hdfs-datanode-1:/hadoop/dfs/data-1
+      - hdfs-datanode-2:/hadoop/dfs/data-2
+
+  namenode:
+    <<: *hadoop-common
+    hostname: namenode
+    depends_on:
+      hdfs-volume-init:
+        condition: service_completed_successfully
+    command: [/bin/bash, /opt/promo/start-namenode.sh]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD-SHELL, "hdfs dfsadmin -safemode get >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+    volumes:
+      - ./docker/hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./docker/hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - ./docker/hadoop/start-namenode.sh:/opt/promo/start-namenode.sh:ro
+      - hdfs-namenode:/hadoop/dfs/name
+
+  datanode-1:
+    <<: *hadoop-common
+    hostname: datanode-1
+    depends_on:
+      namenode:
+        condition: service_healthy
+    command: [hdfs, datanode]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD-SHELL, "curl --fail --silent http://localhost:9864/jmx >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    volumes:
+      - ./docker/hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./docker/hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - hdfs-datanode-1:/hadoop/dfs/data
+
+  datanode-2:
+    <<: *hadoop-common
+    hostname: datanode-2
+    depends_on:
+      namenode:
+        condition: service_healthy
+    command: [hdfs, datanode]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD-SHELL, "curl --fail --silent http://localhost:9864/jmx >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    volumes:
+      - ./docker/hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./docker/hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - hdfs-datanode-2:/hadoop/dfs/data
+
+  spark-master:
+    <<: *spark-common
+    hostname: spark-master
+    command: [/opt/spark/bin/spark-class, org.apache.spark.deploy.master.Master]
+    mem_limit: 384m
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+      HADOOP_USER_NAME: promo
+      PYTHONPATH: /workspace
+      SPARK_DAEMON_MEMORY: 256m
+      SPARK_MASTER_HOST: spark-master
+      SPARK_MASTER_PORT: "7077"
+      SPARK_MASTER_WEBUI_PORT: "8080"
+    healthcheck:
+      test: [CMD-SHELL, "bash -c '</dev/tcp/127.0.0.1/7077'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  spark-worker:
+    <<: *spark-common
+    hostname: spark-worker
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      namenode:
+        condition: service_healthy
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - spark://spark-master:7077
+    mem_limit: 2g
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+      HADOOP_USER_NAME: promo
+      PYTHONPATH: /workspace
+      SPARK_DAEMON_MEMORY: 256m
+      SPARK_WORKER_CORES: "2"
+      SPARK_WORKER_MEMORY: 1536m
+      SPARK_WORKER_WEBUI_PORT: "8081"
+
+  spark-submit:
+    <<: *spark-common
+    profiles: [tools]
+    restart: "no"
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      spark-worker:
+        condition: service_started
+      namenode:
+        condition: service_healthy
+
+networks:
+  promo-internal:
+    internal: true
+
+volumes:
+  hdfs-namenode:
+  hdfs-datanode-1:
+  hdfs-datanode-2:
