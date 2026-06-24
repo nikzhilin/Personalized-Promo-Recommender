@@ -1,10 +1,12 @@
 .PHONY: install-dev lint test validate-data data-up data-down hdfs-bootstrap \
-	ingest-bronze test-hdfs test-all
+	ingest-bronze ingest-purchases test-hdfs test-all
 
 PYTHON ?= python3
 DATA_DIR ?= data/raw
 FEATURE_CUTOFF ?= 2019-03-01T00:00:00
 INGEST_DATE ?= $(shell date -u +%F)
+PURCHASE_MONTHS ?=
+PURCHASE_MONTH_ARGS = $(foreach month,$(PURCHASE_MONTHS),--purchase-month $(month))
 
 install-dev:
 	$(PYTHON) -m pip install -e '.[dev]'
@@ -42,6 +44,18 @@ ingest-bronze: hdfs-bootstrap
 		--data-dir /data/raw \
 		--hdfs-base-uri hdfs://namenode:9000/promo \
 		--ingest-date $(INGEST_DATE)
+
+ingest-purchases: hdfs-bootstrap
+	./scripts/hdfs_preflight.sh
+	RAW_DATA_DIR=$(abspath $(DATA_DIR)) docker compose --profile full --profile tools run --rm \
+		spark-submit /opt/spark/bin/spark-submit \
+		--master spark://spark-master:7077 \
+		--conf spark.executor.cores=2 \
+		--conf spark.executor.memory=1g \
+		--conf spark.sql.shuffle.partitions=12 \
+		/workspace/spark_jobs/ingest_purchases.py \
+		--data-dir /data/raw \
+		--hdfs-base-uri hdfs://namenode:9000/promo $(PURCHASE_MONTH_ARGS)
 
 test-hdfs:
 	./scripts/smoke_test_hdfs.sh

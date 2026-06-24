@@ -1,0 +1,2 @@
+client_id,transaction_id,transaction_datetime,regular_points_received,express_points_received,regular_points_spent,express_points_spent,purchase_sum,store_id,product_id,product_quantity,trn_sum_from_iss,trn_sum_from_red
+client-1,invalid-transaction,not-a-timestamp,1.0,0.0,0.0,0.0,100.0,store-1,product-1,1.0,100.0,

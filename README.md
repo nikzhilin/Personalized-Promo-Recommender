@@ -94,9 +94,24 @@ make ingest-bronze DATA_DIR=data/raw INGEST_DATE=2026-07-01
 ```
 
 Команда обрабатывает `clients.csv`, `products.csv`, `uplift_train.csv` и
-`uplift_test.csv`. `purchases.csv` намеренно оставлен для следующего инкремента, где
-будет добавлена помесячная партиционированная загрузка. Повтор с тем же `INGEST_DATE`
-безопасно заменяет соответствующие партиции через staging и HDFS rename.
+`uplift_test.csv`. Повтор с тем же `INGEST_DATE` безопасно заменяет соответствующие
+партиции через staging и HDFS rename.
+
+Покупки загружаются отдельной командой, так как файл содержит 45,8 млн строк и требует
+помесячной публикации:
+
+```bash
+# Все найденные месяцы
+make ingest-purchases DATA_DIR=data/raw
+
+# Выборочный backfill без изменения остальных месяцев
+make ingest-purchases DATA_DIR=data/raw PURCHASE_MONTHS="2019-01 2019-02"
+```
+
+Job строит партиции `bronze/purchases/purchase_month=YYYY-MM`, сохраняет исходные
+бизнес-значения без Silver-фильтрации и отклоняет невалидные типы до публикации.
+Полная FK-проверка остаётся явным отдельным шагом `make validate-data`, чтобы каждый
+ingest не выполнял скрытый дополнительный scan файла размером 4,2 ГБ.
 
 Остановить контейнеры без удаления данных:
 
@@ -105,7 +120,8 @@ make data-down
 ```
 
 Интеграционная проверка использует отдельный Compose project и синтетические fixtures,
-проверяет схемы Parquet, повторный ingest, две реплики и деградацию одного DataNode:
+проверяет схемы Parquet, полный и выборочный purchases-ingest, rollback при невалидном
+вводе, две реплики и деградацию одного DataNode:
 
 ```bash
 make test-hdfs

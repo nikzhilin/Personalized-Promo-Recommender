@@ -4,7 +4,7 @@ set -euo pipefail
 root_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 project_name="promo-hdfs-test-${$}"
 export COMPOSE_PROJECT_NAME=${project_name}
-export RAW_DATA_DIR="${root_dir}/tests/fixtures/raw_small"
+export RAW_DATA_DIR="${root_dir}/tests/fixtures"
 ingest_date=2026-07-01
 
 cleanup() {
@@ -27,9 +27,13 @@ submit=(
 )
 
 "${submit[@]}" /workspace/spark_jobs/ingest_bronze.py \
-  --data-dir /data/raw \
+  --data-dir /data/raw/raw_small \
   --hdfs-base-uri hdfs://namenode:9000/promo \
   --ingest-date "${ingest_date}"
+
+"${submit[@]}" /workspace/spark_jobs/ingest_purchases.py \
+  --data-dir /data/raw/raw_small \
+  --hdfs-base-uri hdfs://namenode:9000/promo
 
 "${submit[@]}" /workspace/tests/integration/verify_bronze.py \
   --hdfs-base-uri hdfs://namenode:9000/promo \
@@ -37,9 +41,33 @@ submit=(
 
 # Re-running the same partition must replace it rather than duplicate rows.
 "${submit[@]}" /workspace/spark_jobs/ingest_bronze.py \
-  --data-dir /data/raw \
+  --data-dir /data/raw/raw_small \
   --hdfs-base-uri hdfs://namenode:9000/promo \
   --ingest-date "${ingest_date}"
+"${submit[@]}" /workspace/spark_jobs/ingest_purchases.py \
+  --data-dir /data/raw/raw_small \
+  --hdfs-base-uri hdfs://namenode:9000/promo
+"${submit[@]}" /workspace/tests/integration/verify_bronze.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --ingest-date "${ingest_date}"
+
+# A selected-month backfill must leave all other monthly partitions intact.
+"${submit[@]}" /workspace/spark_jobs/ingest_purchases.py \
+  --data-dir /data/raw/raw_small \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --purchase-month 2019-01
+"${submit[@]}" /workspace/tests/integration/verify_bronze.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --ingest-date "${ingest_date}"
+
+# Invalid typed input must fail before replacing an existing month.
+if "${submit[@]}" /workspace/spark_jobs/ingest_purchases.py \
+  --data-dir /data/raw/raw_invalid_purchases \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --purchase-month 2019-01; then
+  echo "Invalid purchases fixture unexpectedly succeeded" >&2
+  exit 1
+fi
 "${submit[@]}" /workspace/tests/integration/verify_bronze.py \
   --hdfs-base-uri hdfs://namenode:9000/promo \
   --ingest-date "${ingest_date}"

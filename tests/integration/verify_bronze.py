@@ -34,6 +34,19 @@ EXPECTED = {
     "uplift_test": ("bronze/uplift/test", {"client_id": "string"}),
 }
 
+PURCHASE_TYPES = {
+    "client_id": "string",
+    "transaction_id": "string",
+    "transaction_datetime": "timestamp",
+    "purchase_sum": "double",
+    "product_id": "string",
+    "product_quantity": "double",
+    "trn_sum_from_iss": "double",
+    "trn_sum_from_red": "double",
+    "purchase_month": "string",
+}
+PURCHASE_MONTH_COUNTS = {"2018-12": 2, "2019-01": 3}
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -57,6 +70,24 @@ def main() -> int:
             assert actual_types["source_file"] == "string"
             assert frame.where(frame.ingest_ts.isNull()).count() == 0
             assert frame.select("source_file").distinct().count() == 1
+
+        purchases = spark.read.parquet(f"{args.hdfs_base_uri}/bronze/purchases")
+        assert purchases.count() == sum(PURCHASE_MONTH_COUNTS.values())
+        purchase_types = dict(purchases.dtypes)
+        for field_name, field_type in PURCHASE_TYPES.items():
+            assert purchase_types[field_name] == field_type, (
+                f"purchases.{field_name}: expected {field_type}, "
+                f"received {purchase_types[field_name]}"
+            )
+        actual_month_counts = {
+            row["purchase_month"]: row["count"]
+            for row in purchases.groupBy("purchase_month").count().collect()
+        }
+        assert actual_month_counts == PURCHASE_MONTH_COUNTS
+        assert purchases.where(purchases.ingest_ts.isNull()).count() == 0
+        assert purchases.select("source_file").distinct().first()["source_file"] == (
+            "purchases.csv"
+        )
     finally:
         spark.stop()
     return 0
