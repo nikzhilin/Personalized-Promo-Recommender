@@ -9,6 +9,7 @@ from pyspark.sql import SparkSession
 EXPECTED = {
     "clients": (
         "bronze/clients",
+        4,
         {
             "client_id": "string",
             "first_issue_date": "timestamp",
@@ -19,6 +20,7 @@ EXPECTED = {
     ),
     "products": (
         "bronze/products",
+        5,
         {
             "product_id": "string",
             "segment_id": "double",
@@ -29,9 +31,10 @@ EXPECTED = {
     ),
     "uplift_train": (
         "bronze/uplift/train",
+        3,
         {"client_id": "string", "treatment_flg": "integer", "target": "integer"},
     ),
-    "uplift_test": ("bronze/uplift/test", {"client_id": "string"}),
+    "uplift_test": ("bronze/uplift/test", 3, {"client_id": "string"}),
 }
 
 PURCHASE_TYPES = {
@@ -45,7 +48,7 @@ PURCHASE_TYPES = {
     "trn_sum_from_red": "double",
     "purchase_month": "string",
 }
-PURCHASE_MONTH_COUNTS = {"2018-12": 2, "2019-01": 3}
+PURCHASE_MONTH_COUNTS = {"2018-12": 3, "2019-01": 7, "2026-07": 1}
 
 
 def main() -> int:
@@ -56,10 +59,12 @@ def main() -> int:
 
     spark = SparkSession.builder.appName("verify-bronze-fixture").getOrCreate()
     try:
-        for dataset, (relative_path, expected_types) in EXPECTED.items():
+        for dataset, (relative_path, expected_rows, expected_types) in EXPECTED.items():
             uri = f"{args.hdfs_base_uri}/{relative_path}/ingest_date={args.ingest_date}"
             frame = spark.read.parquet(uri)
-            assert frame.count() == 2, f"{dataset}: expected exactly two rows"
+            assert frame.count() == expected_rows, (
+                f"{dataset}: expected {expected_rows} rows"
+            )
             actual_types = dict(frame.dtypes)
             for field_name, field_type in expected_types.items():
                 assert actual_types[field_name] == field_type, (

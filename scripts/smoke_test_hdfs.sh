@@ -72,10 +72,57 @@ fi
   --hdfs-base-uri hdfs://namenode:9000/promo \
   --ingest-date "${ingest_date}"
 
-fsck=$(docker compose exec -T namenode hdfs fsck /promo/bronze -blocks -locations)
+# Build the complete Silver fixture and verify data, rejects, and lineage.
+"${submit[@]}" /workspace/spark_jobs/build_silver_dimensions.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --bronze-ingest-date "${ingest_date}" \
+  --snapshot-date "${ingest_date}"
+"${submit[@]}" /workspace/spark_jobs/clean_silver_purchases.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --dimensions-snapshot-date "${ingest_date}" \
+  --snapshot-date "${ingest_date}"
+"${submit[@]}" /workspace/tests/integration/verify_silver.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --snapshot-date "${ingest_date}"
+
+# A Silver month backfill must not remove other published months.
+"${submit[@]}" /workspace/spark_jobs/clean_silver_purchases.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --dimensions-snapshot-date "${ingest_date}" \
+  --snapshot-date "${ingest_date}" \
+  --purchase-month 2019-01
+"${submit[@]}" /workspace/tests/integration/verify_silver.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --snapshot-date "${ingest_date}"
+
+docker compose exec -T namenode hdfs dfs -test -e \
+  "/promo/silver/metadata/dimensions/snapshot_date=${ingest_date}/_metadata.json"
+docker compose exec -T namenode hdfs dfs -test -e \
+  "/promo/silver/metadata/purchases/snapshot_date=${ingest_date}/purchase_month=2019-01/_metadata.json"
+
+# Missing uplift FK must fail before publishing any dimension snapshot.
+missing_fk_ingest_date=2026-07-02
+"${submit[@]}" /workspace/spark_jobs/ingest_bronze.py \
+  --data-dir /data/raw/raw_missing_uplift \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --ingest-date "${missing_fk_ingest_date}"
+if "${submit[@]}" /workspace/spark_jobs/build_silver_dimensions.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --bronze-ingest-date "${missing_fk_ingest_date}" \
+  --snapshot-date "${missing_fk_ingest_date}"; then
+  echo "Silver dimensions unexpectedly accepted a missing uplift FK" >&2
+  exit 1
+fi
+if docker compose exec -T namenode hdfs dfs -test -e \
+  "/promo/silver/clients/snapshot_date=${missing_fk_ingest_date}"; then
+  echo "Failed Silver dimension run published a partial snapshot" >&2
+  exit 1
+fi
+
+fsck=$(docker compose exec -T namenode hdfs fsck /promo -blocks -locations)
 under_replicated=$(awk -F: '/Under replicated blocks:/ {gsub(/[^0-9]/, "", $2); print $2; exit}' <<<"${fsck}")
 if [[ ${fsck} != *"Status: HEALTHY"* ]] || [[ ${under_replicated:-0} -ne 0 ]]; then
-  echo "Bronze replication check failed" >&2
+  echo "HDFS Bronze/Silver replication check failed" >&2
   echo "${fsck}" >&2
   exit 1
 fi

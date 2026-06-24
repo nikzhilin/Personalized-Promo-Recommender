@@ -1,3 +1,6 @@
 product_id,level_1,level_2,level_3,level_4,segment_id,brand_id,vendor_id,netto,is_own_trademark,is_alcohol
 product-1,l1,l2-a,l3-a,l4-a,1,brand-1,vendor-1,0.5,0,0
+product-1,l1,l2-a,l3-a,l4-a,1,brand-1,vendor-1,0.5,0,0
 product-2,l1,l2-b,l3-b,l4-b,2,brand-2,vendor-2,1.0,1,0
+product-3,l1,l2-c,l3-c,l4-c,3,brand-3,vendor-3,2.0,0,0
+product-3,l1,l2-conflict,l3-c,l4-c,3,brand-3,vendor-3,2.0,0,0
