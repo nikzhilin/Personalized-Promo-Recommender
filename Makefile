@@ -1,6 +1,6 @@
 .PHONY: install-dev lint test validate-data data-up data-down hdfs-bootstrap \
 	ingest-bronze ingest-purchases build-silver-dimensions clean-silver-purchases \
-	build-silver test-hdfs test-all
+	build-silver build-user-features test-hdfs test-all
 
 PYTHON ?= python3
 DATA_DIR ?= data/raw
@@ -11,6 +11,7 @@ PURCHASE_MONTH_ARGS = $(foreach month,$(PURCHASE_MONTHS),--purchase-month $(mont
 BRONZE_INGEST_DATE ?= $(INGEST_DATE)
 SNAPSHOT_DATE ?= $(shell date -u +%F)
 DIMENSIONS_SNAPSHOT_DATE ?= $(SNAPSHOT_DATE)
+LOOKBACK_DAYS ?= 180
 
 install-dev:
 	$(PYTHON) -m pip install -e '.[dev]'
@@ -88,6 +89,20 @@ clean-silver-purchases: hdfs-bootstrap
 		--snapshot-date $(SNAPSHOT_DATE) $(PURCHASE_MONTH_ARGS)
 
 build-silver: build-silver-dimensions clean-silver-purchases
+
+build-user-features: hdfs-bootstrap
+	./scripts/hdfs_preflight.sh
+	docker compose --profile full --profile tools run --rm \
+		spark-submit /opt/spark/bin/spark-submit \
+		--master spark://spark-master:7077 \
+		--conf spark.executor.cores=2 \
+		--conf spark.executor.memory=1g \
+		--conf spark.sql.shuffle.partitions=12 \
+		/workspace/spark_jobs/build_user_features.py \
+		--hdfs-base-uri hdfs://namenode:9000/promo \
+		--dimensions-snapshot-date $(DIMENSIONS_SNAPSHOT_DATE) \
+		--feature-cutoff $(FEATURE_CUTOFF) \
+		--lookback-days $(LOOKBACK_DAYS)
 
 test-hdfs:
 	./scripts/smoke_test_hdfs.sh

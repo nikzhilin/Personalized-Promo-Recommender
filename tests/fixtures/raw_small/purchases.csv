@@ -2,6 +2,7 @@ client_id,transaction_id,transaction_datetime,regular_points_received,express_po
 client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,0.0,100.0,store-1,product-1,1.0,50.0,
 client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,0.0,100.0,store-1,product-1,1.0,50.0,
 client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,0.0,100.0,store-1,product-2,1.0,50.0,
+client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,110.0,store-1,product-2,3.0,60.0,
 client-1,transaction-2,2019-01-05 11:30:00,2.0,0.0,0.0,0.0,75.0,store-1,product-1,1.0,75.0,
 client-2,transaction-3,2019-01-15 14:00:00,0.0,0.0,1.0,0.0,120.0,store-2,product-1,2.0,80.0,5.0
 client-2,transaction-3,2019-01-15 14:00:00,0.0,0.0,1.0,0.0,120.0,store-2,product-2,1.0,40.0,
@@ -9,4 +10,7 @@ client-1,transaction-4,2019-01-20 10:00:00,0.0,0.0,0.0,0.0,25.0,store-1,product-
 client-1,transaction-5,2019-01-21 10:00:00,0.0,0.0,0.0,0.0,10.0,store-1,product-1,0.0,10.0,
 unknown-client,transaction-6,2019-01-22 10:00:00,0.0,0.0,0.0,0.0,10.0,store-1,product-1,1.0,10.0,
 client-1,transaction-7,2019-01-23 10:00:00,0.0,0.0,0.0,0.0,10.0,store-1,unknown-product,1.0,10.0,
+client-1,transaction-10,2019-01-30 00:00:00,0.0,0.0,0.0,0.0,30.0,store-1,product-1,1.0,30.0,
+client-1,transaction-9,2019-02-22 00:00:00,0.0,0.0,0.0,0.0,40.0,store-1,product-2,1.0,40.0,
+client-1,transaction-11,2019-03-01 00:00:00,0.0,0.0,0.0,0.0,50.0,store-1,product-1,1.0,50.0,
 client-1,transaction-8,2026-07-02 00:00:00,0.0,0.0,0.0,0.0,10.0,store-1,product-1,1.0,10.0,

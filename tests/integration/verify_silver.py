@@ -44,7 +44,7 @@ def main() -> int:
         ).count() == 2
 
         purchases = spark.read.parquet(f"{args.hdfs_base_uri}/silver/purchases")
-        assert purchases.count() == 7
+        assert purchases.count() == 11
         assert purchases.where(~functions.col("is_valid_for_price")).count() == 1
         assert purchases.where(
             (functions.col("transaction_id") == "transaction-1")

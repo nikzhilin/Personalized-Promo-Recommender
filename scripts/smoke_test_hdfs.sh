@@ -100,6 +100,39 @@ docker compose exec -T namenode hdfs dfs -test -e \
 docker compose exec -T namenode hdfs dfs -test -e \
   "/promo/silver/metadata/purchases/snapshot_date=${ingest_date}/purchase_month=2019-01/_metadata.json"
 
+# Gold user features must honor the half-open cutoff and replace a rerun atomically.
+feature_cutoff=2019-03-01T00:00:00
+feature_snapshot=2019-03-01
+for _ in 1 2; do
+  "${submit[@]}" /workspace/spark_jobs/build_user_features.py \
+    --hdfs-base-uri hdfs://namenode:9000/promo \
+    --dimensions-snapshot-date "${ingest_date}" \
+    --feature-cutoff "${feature_cutoff}" \
+    --lookback-days 180
+  "${submit[@]}" /workspace/tests/integration/verify_user_features.py \
+    --hdfs-base-uri hdfs://namenode:9000/promo \
+    --snapshot-date "${feature_snapshot}"
+done
+
+# A different dimensions snapshot must not be mixed with existing Silver purchases.
+mismatch_snapshot=2026-07-03
+"${submit[@]}" /workspace/spark_jobs/build_silver_dimensions.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --bronze-ingest-date "${ingest_date}" \
+  --snapshot-date "${mismatch_snapshot}"
+if "${submit[@]}" /workspace/spark_jobs/build_user_features.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --dimensions-snapshot-date "${mismatch_snapshot}" \
+  --feature-cutoff 2019-03-02T00:00:00; then
+  echo "Gold features unexpectedly mixed Silver snapshots" >&2
+  exit 1
+fi
+if docker compose exec -T namenode hdfs dfs -test -e \
+  "/promo/gold/user_features/snapshot_date=2019-03-02"; then
+  echo "Failed Gold feature run published a partial snapshot" >&2
+  exit 1
+fi
+
 # Missing uplift FK must fail before publishing any dimension snapshot.
 missing_fk_ingest_date=2026-07-02
 "${submit[@]}" /workspace/spark_jobs/ingest_bronze.py \

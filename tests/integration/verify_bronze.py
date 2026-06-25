@@ -48,7 +48,13 @@ PURCHASE_TYPES = {
     "trn_sum_from_red": "double",
     "purchase_month": "string",
 }
-PURCHASE_MONTH_COUNTS = {"2018-12": 3, "2019-01": 7, "2026-07": 1}
+PURCHASE_MONTH_COUNTS = {
+    "2018-12": 4,
+    "2019-01": 8,
+    "2019-02": 1,
+    "2019-03": 1,
+    "2026-07": 1,
+}
 
 
 def main() -> int:
