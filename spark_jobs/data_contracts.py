@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+
+from spark_jobs.enum_compat import StrEnum
 
 
 class FieldType(StrEnum):
@@ -92,4 +93,3 @@ DATA_CONTRACTS: dict[str, FileContract] = {
         primary_key=("client_id",),
     ),
 }
-

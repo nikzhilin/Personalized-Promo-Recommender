@@ -25,14 +25,14 @@ EXPECTED = {
             "product_id": "string",
             "segment_id": "double",
             "netto": "double",
-            "is_own_trademark": "integer",
-            "is_alcohol": "integer",
+            "is_own_trademark": "int",
+            "is_alcohol": "int",
         },
     ),
     "uplift_train": (
         "bronze/uplift/train",
         3,
-        {"client_id": "string", "treatment_flg": "integer", "target": "integer"},
+        {"client_id": "string", "treatment_flg": "int", "target": "int"},
     ),
     "uplift_test": ("bronze/uplift/test", 3, {"client_id": "string"}),
 }

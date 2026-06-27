@@ -6,7 +6,7 @@ import argparse
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +19,7 @@ from spark_jobs.bronze_common import (
     replace_hdfs_paths,
     require_valid_profiles,
 )
+from spark_jobs.time_compat import UTC
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession

@@ -7,11 +7,12 @@ import csv
 import json
 import math
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from spark_jobs.data_contracts import DATA_CONTRACTS, FieldContract, FieldType, FileContract
+from spark_jobs.time_compat import UTC
 
 MAX_EXAMPLES = 5
 

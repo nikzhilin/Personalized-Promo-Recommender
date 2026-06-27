@@ -6,7 +6,7 @@ import argparse
 import json
 import uuid
 from calendar import monthrange
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from spark_jobs.bronze_common import (
@@ -15,12 +15,14 @@ from spark_jobs.bronze_common import (
     normalize_hdfs_base_uri,
     replace_hdfs_paths,
 )
+from spark_jobs.gold_common import FEEDBACK_FEATURE_COLUMNS, gold_data_uri, gold_metadata_uri
 from spark_jobs.silver_common import (
     parse_iso_date,
     silver_data_uri,
     stage_parquet,
     write_json_metadata,
 )
+from spark_jobs.time_compat import UTC
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -113,10 +115,78 @@ def _source_run_ids(frame: DataFrame) -> list[str]:
     )
 
 
+def _read_hdfs_json(spark: SparkSession, uri: str) -> dict[str, Any]:
+    hdfs = filesystem(spark, uri)
+    path = hadoop_path(spark, uri)
+    stream = hdfs.open(path)
+    reader = spark._jvm.java.io.BufferedReader(  # noqa: SLF001
+        spark._jvm.java.io.InputStreamReader(stream)  # noqa: SLF001
+    )
+    try:
+        payload = json.loads(reader.readLine())
+    finally:
+        reader.close()
+    if not isinstance(payload, dict):
+        raise ValueError("feedback feature metadata must be a JSON object")
+    return payload
+
+
+def _read_feedback_features(
+    spark: SparkSession,
+    base_uri: str,
+    *,
+    feature_cutoff: datetime,
+    lookback_days: int,
+    dimensions_snapshot_date: date,
+) -> tuple[DataFrame | None, str | None]:
+    snapshot_date = feature_cutoff.date()
+    data_uri = gold_data_uri(base_uri, "feedback_features", snapshot_date)
+    metadata_uri = (
+        f"{gold_metadata_uri(base_uri, 'feedback_features', snapshot_date)}/_metadata.json"
+    )
+    hdfs = filesystem(spark, data_uri)
+    data_exists = hdfs.exists(hadoop_path(spark, data_uri))
+    metadata_exists = hdfs.exists(hadoop_path(spark, metadata_uri))
+    if not data_exists and not metadata_exists:
+        return None, None
+    if data_exists != metadata_exists:
+        raise ValueError("feedback feature snapshot data/metadata publication is incomplete")
+    metadata = _read_hdfs_json(spark, metadata_uri)
+    expected = {
+        "feature_cutoff": feature_cutoff.isoformat(),
+        "lookback_days": lookback_days,
+        "dimensions_snapshot_date": dimensions_snapshot_date.isoformat(),
+    }
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            raise ValueError(
+                f"feedback feature metadata {key} mismatch: "
+                f"expected {value}, found {metadata.get(key)}"
+            )
+    run_id = metadata.get("run_id")
+    if not isinstance(run_id, str) or not run_id:
+        raise ValueError("feedback feature metadata run_id is missing")
+    frame = spark.read.parquet(data_uri)
+    required = {"client_id", "feedback_feature_run_id", *FEEDBACK_FEATURE_COLUMNS}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise ValueError(f"feedback feature snapshot is missing columns: {missing}")
+    actual_run_ids = {
+        row["feedback_feature_run_id"]
+        for row in frame.select("feedback_feature_run_id").distinct().collect()
+    }
+    if actual_run_ids != {run_id}:
+        raise ValueError(
+            f"feedback feature run_id mismatch: expected {run_id}, found {actual_run_ids}"
+        )
+    return frame.select("client_id", *FEEDBACK_FEATURE_COLUMNS), run_id
+
+
 def _build_features(
     clients: DataFrame,
     products: DataFrame,
     purchases: DataFrame,
+    feedback_features: DataFrame | None = None,
     *,
     feature_cutoff: datetime,
     lookback_days: int,
@@ -162,6 +232,12 @@ def _build_features(
         functions.count("*").alias("total_transactions"),
         functions.sum("receipt_sum").alias("total_spent"),
         functions.max("transaction_datetime").alias("last_purchase_at"),
+        functions.sum(functions.greatest("points_spent", functions.lit(0.0))).alias(
+            "total_points_spent"
+        ),
+        functions.sum(functions.greatest("receipt_sum", functions.lit(0.0))).alias(
+            "positive_receipt_sum"
+        ),
         functions.sum(
             functions.when(functions.col("transaction_datetime") >= days_7, 1).otherwise(0)
         ).alias("purchases_7d"),
@@ -191,6 +267,17 @@ def _build_features(
                 functions.col("active_days_30d") > 0,
                 functions.col("purchases_30d") / functions.col("active_days_30d"),
             ),
+            "redeemed_points_share": functions.when(
+                functions.col("positive_receipt_sum") + functions.col("total_points_spent") > 0,
+                functions.least(
+                    functions.lit(1.0),
+                    functions.col("total_points_spent")
+                    / (
+                        functions.col("positive_receipt_sum")
+                        + functions.col("total_points_spent")
+                    ),
+                ),
+            ).otherwise(0.0),
         }
     )
 
@@ -253,30 +340,57 @@ def _build_features(
         .join(receipt_features, "client_id", "left")
         .join(line_features, "client_id", "left")
         .join(favorite, "client_id", "left")
-        .withColumns(
-            {
-                "age": age_expression,
-                "total_transactions": functions.coalesce("total_transactions", functions.lit(0)),
-                "total_items": functions.coalesce("total_items", functions.lit(0.0)),
-                "total_spent": functions.coalesce("total_spent", functions.lit(0.0)),
-                "purchases_7d": functions.coalesce("purchases_7d", functions.lit(0)),
-                "purchases_30d": functions.coalesce("purchases_30d", functions.lit(0)),
-                "purchases_90d": functions.coalesce("purchases_90d", functions.lit(0)),
-                "category_diversity": functions.coalesce(
-                    "category_diversity", functions.lit(0)
-                ),
-                "feature_cutoff": functions.lit(feature_cutoff).cast("timestamp"),
-                "lookback_days": functions.lit(lookback_days),
-                "source_dimensions_snapshot_date": functions.lit(
-                    dimensions_snapshot_date.isoformat()
-                ),
-                "feature_run_id": functions.lit(run_id),
-                "feature_ts": functions.lit(feature_timestamp).cast("timestamp"),
-            }
+    )
+    if feedback_features is not None:
+        feedback_rows = feedback_features.count()
+        duplicate_feedback_users = (
+            feedback_features.groupBy("client_id").count().where("count > 1").limit(1).count()
         )
+        if duplicate_feedback_users:
+            raise ValueError("feedback feature snapshot contains duplicate client_id rows")
+        features = features.join(feedback_features, "client_id", "left")
+    else:
+        feedback_rows = 0
+    derived_columns = {
+        "age": age_expression,
+        "total_transactions": functions.coalesce("total_transactions", functions.lit(0)),
+        "total_items": functions.coalesce("total_items", functions.lit(0.0)),
+        "total_spent": functions.coalesce("total_spent", functions.lit(0.0)),
+        "purchases_7d": functions.coalesce("purchases_7d", functions.lit(0)),
+        "purchases_30d": functions.coalesce("purchases_30d", functions.lit(0)),
+        "purchases_90d": functions.coalesce("purchases_90d", functions.lit(0)),
+        "category_diversity": functions.coalesce(
+            "category_diversity", functions.lit(0)
+        ),
+        "redeemed_points_share": functions.coalesce(
+            "redeemed_points_share", functions.lit(0.0)
+        ),
+        "feature_cutoff": functions.lit(feature_cutoff).cast("timestamp"),
+        "lookback_days": functions.lit(lookback_days),
+        "source_dimensions_snapshot_date": functions.lit(
+            dimensions_snapshot_date.isoformat()
+        ),
+        "feature_run_id": functions.lit(run_id),
+        "feature_ts": functions.lit(feature_timestamp).cast("timestamp"),
+    }
+    for column in FEEDBACK_FEATURE_COLUMNS[:6]:
+        derived_columns[column] = functions.coalesce(
+            functions.col(column) if column in features.columns else functions.lit(None),
+            functions.lit(0),
+        ).cast("long")
+    for column in FEEDBACK_FEATURE_COLUMNS[6:]:
+        derived_columns[column] = (
+            functions.col(column).cast("double")
+            if column in features.columns
+            else functions.lit(None).cast("double")
+        )
+    features = (
+        features.withColumns(derived_columns)
         .drop(
             "last_purchase_at",
             "active_days_30d",
+            "positive_receipt_sum",
+            "total_points_spent",
             "valid_price_sum",
             "valid_price_quantity",
         )
@@ -291,6 +405,7 @@ def _build_features(
         "inconsistent_receipts": inconsistent_receipts,
         "ineligible_price_rows": ineligible_price_rows,
         "missing_category_rows": missing_category_rows,
+        "source_feedback_feature_rows": feedback_rows,
         "source_rows_on_or_after_cutoff": leakage_rows,
         "published_rows_on_or_after_cutoff": 0,
         "age_winsorization": {
@@ -330,6 +445,13 @@ def build_user_features(
             spark, hdfs_base_uri, feature_cutoff, lookback_days
         )
         _validate_dimensions_snapshot(purchases, dimensions_snapshot_date)
+        feedback_features, feedback_run_id = _read_feedback_features(
+            spark,
+            hdfs_base_uri,
+            feature_cutoff=feature_cutoff,
+            lookback_days=lookback_days,
+            dimensions_snapshot_date=dimensions_snapshot_date,
+        )
         source_run_ids = {
             "clients": _source_run_ids(clients),
             "products": _source_run_ids(products),
@@ -339,6 +461,7 @@ def build_user_features(
             clients,
             products,
             purchases,
+            feedback_features,
             feature_cutoff=feature_cutoff,
             lookback_days=lookback_days,
             dimensions_snapshot_date=dimensions_snapshot_date,
@@ -358,6 +481,7 @@ def build_user_features(
             "dimensions_snapshot_date": dimensions_snapshot_date.isoformat(),
             "source_purchase_months": purchase_months,
             "source_silver_run_ids": source_run_ids,
+            "source_feedback_feature_run_id": feedback_run_id,
             "metrics": metrics,
         }
         write_json_metadata(spark, staged_metadata, metadata)

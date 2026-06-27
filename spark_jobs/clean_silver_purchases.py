@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import uuid
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
 from spark_jobs.bronze_common import (
@@ -25,6 +25,7 @@ from spark_jobs.silver_common import (
     stage_parquet,
     write_json_metadata,
 )
+from spark_jobs.time_compat import UTC
 
 if TYPE_CHECKING:
     from pyspark.sql import Column, DataFrame, SparkSession

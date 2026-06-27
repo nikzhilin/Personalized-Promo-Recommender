@@ -6,7 +6,7 @@ import argparse
 import json
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ from spark_jobs.bronze_common import (
     replace_hdfs_paths,
     require_valid_profiles,
 )
+from spark_jobs.time_compat import UTC
 
 PURCHASES_FILE = "purchases.csv"
 PURCHASE_MONTH_PATTERN = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")

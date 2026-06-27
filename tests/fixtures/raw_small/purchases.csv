@@ -2,7 +2,7 @@ client_id,transaction_id,transaction_datetime,regular_points_received,express_po
 client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,0.0,100.0,store-1,product-1,1.0,50.0,
 client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,0.0,100.0,store-1,product-1,1.0,50.0,
 client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,0.0,100.0,store-1,product-2,1.0,50.0,
-client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,110.0,store-1,product-2,3.0,60.0,
+client-1,transaction-1,2018-12-01 10:00:00,1.0,0.0,0.0,0.0,110.0,store-1,product-2,3.0,60.0,
 client-1,transaction-2,2019-01-05 11:30:00,2.0,0.0,0.0,0.0,75.0,store-1,product-1,1.0,75.0,
 client-2,transaction-3,2019-01-15 14:00:00,0.0,0.0,1.0,0.0,120.0,store-2,product-1,2.0,80.0,5.0
 client-2,transaction-3,2019-01-15 14:00:00,0.0,0.0,1.0,0.0,120.0,store-2,product-2,1.0,40.0,
