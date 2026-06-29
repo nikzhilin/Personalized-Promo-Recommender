@@ -1,0 +1,17 @@
+version: "1.0"
+discount_response:
+  grid: [0.0, 0.05, 0.10, 0.15]
+  uplift_multipliers: [0.0, 0.33, 0.66, 1.0]
+  relevance_floor: 0.5
+  relevance_weight: 0.5
+promo_abuse:
+  promo_sensitivity_weight: 0.35
+  purchase_burst_weight: 0.25
+  redeemed_points_weight: 0.20
+  uplift_outlier_weight: 0.20
+price:
+  lower_quantile: 0.01
+  upper_quantile: 0.99
+  median_accuracy: 10000
+economics:
+  roi_epsilon: 0.000000001
