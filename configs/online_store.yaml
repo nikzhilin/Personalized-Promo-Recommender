@@ -1,0 +1,12 @@
+version: "1.0"
+key_prefix: "promo"
+snapshot_ttl_hours: 48
+max_snapshot_bytes: 167772160
+memory_reserve_bytes: 33554432
+memory_overhead_factor: 2.0
+max_top_n: 10
+min_top_n: 1
+fallback_top_n: 10
+pipeline_batch_size: 500
+socket_timeout_seconds: 0.2
+required_hdfs_replication: 2

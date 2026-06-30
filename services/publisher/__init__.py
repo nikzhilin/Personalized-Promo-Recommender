@@ -1,0 +1,1 @@
+"""Atomic online snapshot publisher."""
