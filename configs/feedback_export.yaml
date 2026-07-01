@@ -1,0 +1,6 @@
+version: "1.0"
+export_name: "hdfs_feedback"
+batch_size: 100000
+hdfs_root: "/promo"
+compression: "snappy"
+required_replication: 2
