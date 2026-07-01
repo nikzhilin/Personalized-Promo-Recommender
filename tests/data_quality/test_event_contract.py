@@ -67,7 +67,7 @@ def test_feedback_requires_timezone_and_nonnegative_values() -> None:
 
 def test_migrations_are_numbered_and_immutable_inputs() -> None:
     migrations = discover_migrations(Path("db/migrations"))
-    assert [migration.version for migration in migrations] == ["001", "002", "003"]
+    assert [migration.version for migration in migrations] == ["001", "002", "003", "004"]
     assert len(migrations[0].checksum) == 64
     assert "prediction_events" in migrations[0].sql
     assert "feedback_events" in migrations[0].sql
