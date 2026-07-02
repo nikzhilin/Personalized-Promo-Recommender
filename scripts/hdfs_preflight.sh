@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-compose=(docker compose)
-report=$("${compose[@]}" exec -T namenode hdfs dfsadmin -report)
+if command -v docker >/dev/null 2>&1; then
+  hdfs_cmd=(docker compose exec -T namenode hdfs)
+else
+  hdfs_cmd=(hdfs)
+fi
+
+report=$("${hdfs_cmd[@]}" dfsadmin -report)
 live_nodes=$(awk '/Live datanodes \(/ {gsub(/[^0-9]/, "", $0); print $0; exit}' <<<"${report}")
 
 if [[ ${live_nodes:-0} -lt 2 ]]; then
@@ -10,7 +15,7 @@ if [[ ${live_nodes:-0} -lt 2 ]]; then
   exit 1
 fi
 
-safe_mode=$("${compose[@]}" exec -T namenode hdfs dfsadmin -safemode get)
+safe_mode=$("${hdfs_cmd[@]}" dfsadmin -safemode get)
 if [[ ${safe_mode} != *"OFF"* ]]; then
   echo "HDFS preflight failed: ${safe_mode}" >&2
   exit 1
@@ -24,7 +29,7 @@ while read -r used_percent; do
   fi
 done < <(awk '/DFS Used%:/ {gsub(/%/, "", $3); print $3}' <<<"${report}")
 
-fsck=$("${compose[@]}" exec -T namenode hdfs fsck /promo -blocks 2>&1)
+fsck=$("${hdfs_cmd[@]}" fsck /promo -blocks 2>&1)
 if [[ ${fsck} != *"Status: HEALTHY"* ]]; then
   echo "HDFS preflight failed: /promo is not healthy" >&2
   echo "${fsck}" >&2
