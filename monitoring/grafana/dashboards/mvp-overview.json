@@ -1,0 +1,19 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "panels": [
+    {"type": "stat", "title": "API Up", "targets": [{"expr": "up{job=\"api\"}"}], "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0}},
+    {"type": "timeseries", "title": "API p95 latency", "targets": [{"expr": "histogram_quantile(0.95, sum(rate(promo_api_http_request_duration_seconds_bucket[5m])) by (le))"}], "gridPos": {"h": 8, "w": 10, "x": 4, "y": 0}},
+    {"type": "stat", "title": "Pipeline Success", "targets": [{"expr": "promo_pipeline_last_run_success"}], "gridPos": {"h": 4, "w": 4, "x": 14, "y": 0}},
+    {"type": "stat", "title": "Recommendation Coverage", "targets": [{"expr": "promo_recommendation_coverage"}], "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0}},
+    {"type": "timeseries", "title": "Profit and Spend", "targets": [{"expr": "promo_expected_profit_total"}, {"expr": "promo_discount_spend_total"}], "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}},
+    {"type": "timeseries", "title": "Discount Share and ROI", "targets": [{"expr": "promo_selected_discount_share"}, {"expr": "promo_business_roi"}], "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}}
+  ],
+  "schemaVersion": 39,
+  "tags": ["promo", "mvp"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "title": "Promo MVP Overview",
+  "uid": "promo-mvp-overview",
+  "version": 1
+}

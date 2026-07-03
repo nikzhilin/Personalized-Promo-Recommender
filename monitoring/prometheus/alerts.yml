@@ -1,0 +1,29 @@
+groups:
+  - name: promo-mvp
+    rules:
+      - alert: PromoApiUnavailable
+        expr: up{job="api"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Recommendation API is unavailable"}
+      - alert: PromoPipelineStale
+        expr: time() - promo_pipeline_last_success_timestamp_seconds > 172800
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "No successful pipeline for 48 hours"}
+      - alert: PromoHdfsTargetUnavailable
+        expr: up{job=~"hdfs-.*"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: "An HDFS metrics target is unavailable"}
+      - alert: PromoRedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Redis memory usage exceeds 85%"}
+      - alert: PromoDiscountShareAbnormal
+        expr: promo_selected_discount_share == 0 or promo_selected_discount_share > 0.8
+        for: 15m
+        labels: {severity: warning}
+        annotations: {summary: "Selected discount share is abnormal"}
+

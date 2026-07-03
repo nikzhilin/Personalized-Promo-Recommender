@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: Promo MVP
+    folder: Personalized Promo
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards
+
