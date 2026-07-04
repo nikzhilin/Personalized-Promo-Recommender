@@ -14,6 +14,7 @@ trap cleanup EXIT
 
 cd "${root_dir}"
 docker compose --profile full up -d namenode datanode-1 datanode-2 spark-master spark-worker
+docker compose --profile full --profile tools build trainer
 ./scripts/bootstrap_hdfs.sh
 ./scripts/hdfs_preflight.sh
 
@@ -103,7 +104,14 @@ docker compose exec -T namenode hdfs dfs -test -e \
 # Gold user features must honor the half-open cutoff and replace a rerun atomically.
 feature_cutoff=2019-03-01T00:00:00
 feature_snapshot=2019-03-01
+"${submit[@]}" /workspace/tests/integration/seed_feedback_events.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo
 for _ in 1 2; do
+  "${submit[@]}" /workspace/spark_jobs/build_feedback_features.py \
+    --hdfs-base-uri hdfs://namenode:9000/promo \
+    --dimensions-snapshot-date "${ingest_date}" \
+    --feature-cutoff "${feature_cutoff}" \
+    --lookback-days 180
   "${submit[@]}" /workspace/spark_jobs/build_user_features.py \
     --hdfs-base-uri hdfs://namenode:9000/promo \
     --dimensions-snapshot-date "${ingest_date}" \
@@ -113,6 +121,84 @@ for _ in 1 2; do
     --hdfs-base-uri hdfs://namenode:9000/promo \
     --snapshot-date "${feature_snapshot}"
 done
+
+# Complete Gold features must cover all clients without a client-product Cartesian join.
+for gold_job in build_item_features generate_candidates build_user_item_features; do
+  "${submit[@]}" "/workspace/spark_jobs/${gold_job}.py" \
+    --hdfs-base-uri hdfs://namenode:9000/promo \
+    --dimensions-snapshot-date "${ingest_date}" \
+    --feature-cutoff "${feature_cutoff}" \
+    --lookback-days 180
+done
+"${submit[@]}" /workspace/tests/integration/verify_gold_features.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --snapshot-date "${feature_snapshot}"
+
+# Uplift dataset uses an isolated balanced campaign fixture and publishes atomically.
+uplift_dimensions_snapshot=2026-07-04
+uplift_feature_cutoff=2019-03-05T00:00:00
+uplift_feature_snapshot=2019-03-05
+"${submit[@]}" /workspace/tests/integration/seed_uplift_dataset.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --source-dimensions-snapshot-date "${ingest_date}" \
+  --source-feature-snapshot-date "${feature_snapshot}" \
+  --target-dimensions-snapshot-date "${uplift_dimensions_snapshot}" \
+  --target-feature-cutoff "${uplift_feature_cutoff}"
+for _ in 1 2; do
+  "${submit[@]}" /workspace/training/build_uplift_dataset.py \
+    --hdfs-base-uri hdfs://namenode:9000/promo \
+    --dimensions-snapshot-date "${uplift_dimensions_snapshot}" \
+    --feature-cutoff "${uplift_feature_cutoff}" \
+    --lookback-days 180
+  "${submit[@]}" /workspace/tests/integration/verify_uplift_dataset.py \
+    --hdfs-base-uri hdfs://namenode:9000/promo \
+    --snapshot-date "${uplift_feature_snapshot}"
+done
+if "${submit[@]}" /workspace/training/build_uplift_dataset.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --dimensions-snapshot-date "${uplift_dimensions_snapshot}" \
+  --feature-cutoff 2019-03-06T00:00:00 \
+  --lookback-days 180; then
+  echo "Uplift dataset unexpectedly accepted a missing Gold snapshot" >&2
+  exit 1
+fi
+if docker compose exec -T namenode hdfs dfs -test -e \
+  "/promo/gold/uplift_dataset/snapshot_date=2019-03-06"; then
+  echo "Failed uplift dataset run published a partial snapshot" >&2
+  exit 1
+fi
+
+# T-learner publishes two models atomically and retains only the latest successful run.
+train_submit=(
+  docker compose --profile full --profile tools run --rm trainer
+  /opt/spark/bin/spark-submit
+  --master spark://spark-master:7077
+  --conf spark.executor.cores=2
+  --conf spark.executor.memory=1g
+  --conf spark.sql.shuffle.partitions=4
+)
+for _ in 1 2; do
+  "${train_submit[@]}" /workspace/training/train_uplift.py \
+    --hdfs-base-uri hdfs://namenode:9000/promo \
+    --dataset-snapshot-date "${uplift_feature_snapshot}" \
+    --iterations 30 \
+    --depth 4 \
+    --learning-rate 0.1 \
+    --early-stopping-rounds 5
+  "${submit[@]}" /workspace/tests/integration/verify_uplift_model.py \
+    --hdfs-base-uri hdfs://namenode:9000/promo \
+    --dataset-snapshot-date "${uplift_feature_snapshot}"
+done
+if "${train_submit[@]}" /workspace/training/train_uplift.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --dataset-snapshot-date 2019-03-06 \
+  --iterations 10; then
+  echo "Uplift training unexpectedly accepted a missing dataset" >&2
+  exit 1
+fi
+"${submit[@]}" /workspace/tests/integration/verify_uplift_model.py \
+  --hdfs-base-uri hdfs://namenode:9000/promo \
+  --dataset-snapshot-date "${uplift_feature_snapshot}"
 
 # A different dimensions snapshot must not be mixed with existing Silver purchases.
 mismatch_snapshot=2026-07-03
