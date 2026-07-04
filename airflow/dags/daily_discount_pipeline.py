@@ -146,6 +146,25 @@ with DAG(
         "--dimensions-snapshot-date {{ params.dimensions_snapshot_date }} "
         "--snapshot-date {{ params.dimensions_snapshot_date }}",
     )
+    propensity_features = BashOperator(
+        task_id="build_propensity_feature_snapshots",
+        pool="heavy_compute",
+        bash_command=(
+            "set -euo pipefail; "
+            "{% for cutoff in params.propensity_cutoffs %} "
+            "for job in build_user_features build_item_features generate_candidates "
+            "build_user_item_features; do "
+            "extra=''; if [ $job = build_item_features ]; then "
+            "extra='--margin-config /workspace/configs/margin_seed.csv "
+            "--simulation-config /workspace/configs/simulation.yaml'; fi; "
+            f"{SPARK} /workspace/spark_jobs/$job.py {BASE} "
+            "--dimensions-snapshot-date {{ params.dimensions_snapshot_date }} "
+            "--feature-cutoff {{ cutoff }} --lookback-days {{ params.lookback_days }} "
+            "$extra; "
+            "done; {% endfor %}"
+        ),
+        do_xcom_push=False,
+    )
     feedback = spark_task(
         "build_feedback_features", "spark_jobs/build_feedback_features.py", DATES
     )
@@ -239,8 +258,10 @@ with DAG(
 
     audit_start >> hdfs_gate >> validate >> [ingest_dimensions, ingest_purchases]
     [ingest_dimensions, ingest_purchases] >> silver_dimensions >> silver_purchases
+    silver_purchases >> propensity_features
     silver_purchases >> feedback >> users >> items >> candidates >> user_items
     user_items >> [propensity_dataset, uplift_dataset]
+    propensity_features >> propensity_dataset
     propensity_dataset >> train_propensity
     uplift_dataset >> train_uplift
     [train_propensity, train_uplift] >> score
